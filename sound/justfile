@@ -1,0 +1,24 @@
+# just とだけ打つと usage を表示する
+default:
+    @just --list
+
+# フォーマット
+fmt:
+    cargo fmt
+
+# 実行（引数必須）
+run *ARGS:
+    @if [ -z "{{ARGS}}" ]; then \
+        echo "Error: run requires arguments"; \
+        exit 1; \
+    fi
+    just fmt
+    cargo run -- {{ARGS}}
+
+# ビルド（release）
+build:
+    cargo build --release
+
+# チェック（型チェックだけ）
+check:
+    cargo check
