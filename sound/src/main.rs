@@ -1,24 +1,26 @@
 use clap::Parser;
-use rand::{RngExt, rng};
-use rodio::{OutputStream, Sink, Source};
-use std::f32::consts::PI;
 use std::{
+    f32::consts::PI,
     fs::File,
     io::{BufRead, BufReader},
     path::PathBuf,
+    sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    },
+    thread,
     time::Duration,
 };
 
-// -----------------------------
-// CLI Args
-// -----------------------------
+use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+
 #[derive(Parser)]
 struct Args {
     #[arg(short, long)]
     file: PathBuf,
 
-    #[arg(long, default_value = "0.15")]
-    volume: f32,
+    #[arg(long, default_value = "1.0")]
+    volume: f32, // normalized: 1.0 = 15%
 
     #[arg(long, default_value = "1.0")]
     tempo: f32,
@@ -27,15 +29,13 @@ struct Args {
     pitch: f32,
 
     #[arg(long, default_value = "0.0")]
-    soft: f32, // 柔らかさ
+    soft: f32, // waveform smoothing limiter (0.0 - 1.0)
 
     #[arg(long, default_value = "0.0")]
-    square: f32, // 矩形波の強さ
+    square: f32, // square wave mix
 }
 
-// -----------------------------
-// A4=440Hz note_to_freq
-// -----------------------------
+// Convert note name (e.g. "A4") to frequency
 fn note_to_freq(note: &str) -> Option<f32> {
     let (pitch, octave_str) = note.split_at(note.len() - 1);
     let octave: i32 = octave_str.parse().ok()?;
@@ -60,19 +60,12 @@ fn note_to_freq(note: &str) -> Option<f32> {
     Some(440.0 * 2f32.powf(n as f32 / 12.0))
 }
 
-// -----------------------------
-// struct VoiceParams
-// -----------------------------
 #[derive(Debug, Clone)]
 struct VoiceParams {
     vol: f32,
     attack: f32,
-    noise: f32,
 }
 
-// -----------------------------
-// struct NoteEvent
-// -----------------------------
 #[derive(Debug, Clone)]
 struct NoteEvent {
     freq: f32,
@@ -80,11 +73,9 @@ struct NoteEvent {
     params: VoiceParams,
 }
 
-// -----------------------------
-// load txt source
-// -----------------------------
+// Load score file
 fn load_score(path: &PathBuf) -> Vec<NoteEvent> {
-    let file = File::open(path).unwrap_or_else(|_| panic!("file not found: {:?}", path));
+    let file = File::open(path).unwrap();
     let reader = BufReader::new(file);
 
     let mut events = Vec::new();
@@ -102,13 +93,11 @@ fn load_score(path: &PathBuf) -> Vec<NoteEvent> {
 
         let note = parts[0];
         let duration_ms: u64 = parts[1].parse().unwrap();
-
-        let freq = note_to_freq(note).unwrap_or_else(|| panic!("invalid note: {}", note));
+        let freq = note_to_freq(note).unwrap();
 
         let mut params = VoiceParams {
             vol: 1.0,
             attack: 20.0,
-            noise: 0.0,
         };
 
         for p in &parts[2..] {
@@ -116,8 +105,6 @@ fn load_score(path: &PathBuf) -> Vec<NoteEvent> {
                 params.vol = v.parse().unwrap();
             } else if let Some(v) = p.strip_prefix("attack=") {
                 params.attack = v.parse().unwrap();
-            } else if let Some(v) = p.strip_prefix("noise=") {
-                params.noise = v.parse().unwrap();
             }
         }
 
@@ -131,111 +118,119 @@ fn load_score(path: &PathBuf) -> Vec<NoteEvent> {
     events
 }
 
-// -----------------------------
-// struct VoiceWave
-// -----------------------------
-struct VoiceWave {
-    freq: f32,
-    sample_rate: u32,
-    t: f32,
-    duration_samples: u32,
-    params: VoiceParams,
-    soft: f32,
-    square: f32,
-    last_sample: f32,
-}
+// Synthesize all notes into a mono f32 buffer
+fn synth_events(events: &[NoteEvent], args: &Args, sample_rate: u32) -> Vec<f32> {
+    let mut samples = Vec::new();
 
-impl Iterator for VoiceWave {
-    type Item = f32;
-
-    fn next(&mut self) -> Option<f32> {
-        if self.duration_samples == 0 {
-            return None;
-        }
-
-        let t = self.t;
-        let freq_mod = self.freq;
-        let sine = (2.0 * PI * freq_mod * t).sin();
-        let square_wave = if sine >= 0.0 { 1.0 } else { -1.0 };
-        let mut base = sine * (1.0 - self.square) + square_wave * self.square;
-        let noise_amount = self.params.noise * (1.0 - self.soft.clamp(0.0, 1.0));
-        let mut rng = rng();
-        let noise = noise_amount * rng.random_range(-1.0..1.0);
-        let attack_scale = 1.0 + self.soft;
-        let attack_gain = (t * 1000.0 / (self.params.attack * attack_scale)).min(1.0);
-        let release_ms = 50.0;
-        let time_left_sec = self.duration_samples as f32 / self.sample_rate as f32;
-        let release_gain = if time_left_sec < release_ms / 1000.0 {
-            (time_left_sec * 1000.0 / release_ms).min(1.0)
-        } else {
-            1.0
-        };
-
-        if self.soft > 0.0 {
-            let alpha = 0.1 * self.soft.clamp(0.0, 1.0);
-            base = self.last_sample + alpha * (base - self.last_sample);
-            self.last_sample = base;
-        }
-
-        let sample = (base + noise) * self.params.vol * attack_gain * release_gain;
-
-        self.t += 1.0 / self.sample_rate as f32;
-        self.duration_samples -= 1;
-
-        Some(sample)
-    }
-}
-
-impl Source for VoiceWave {
-    fn current_frame_len(&self) -> Option<usize> {
-        None
-    }
-    fn channels(&self) -> u16 {
-        1
-    }
-    fn sample_rate(&self) -> u32 {
-        self.sample_rate
-    }
-    fn total_duration(&self) -> Option<Duration> {
-        None
-    }
-}
-
-// -----------------------------
-// Play events
-// -----------------------------
-fn play(events: Vec<NoteEvent>, args: &Args) {
-    let (_stream, stream_handle) = OutputStream::try_default().unwrap();
-    let sink = Sink::try_new(&stream_handle).unwrap();
+    // volume normalization: 1.0 = 15%
+    let volume = args.volume * 0.15;
+    let soft_strength = args.soft.clamp(0.0, 1.0);
 
     for ev in events {
-        let duration = (ev.duration_ms as f32 / args.tempo) as f32;
-        let samples = (duration / 1000.0 * 44100.0) as u32;
+        let duration_ms = (ev.duration_ms as f32 / args.tempo) as f32;
+        let total_samples = (duration_ms / 1000.0 * sample_rate as f32) as u32;
 
-        let wave = VoiceWave {
-            freq: ev.freq * args.pitch,
-            sample_rate: 44100,
-            t: 0.0,
-            duration_samples: samples,
-            params: VoiceParams {
-                vol: ev.params.vol * args.volume,
-                attack: ev.params.attack,
-                noise: ev.params.noise,
-            },
-            soft: args.soft,
-            square: args.square,
-            last_sample: 0.0,
-        };
+        let mut t = 0.0f32;
+        let dt = 1.0 / sample_rate as f32;
+        let freq = ev.freq * args.pitch;
+        let mut last_sample = 0.0f32;
 
-        sink.append(wave);
+        for i in 0..total_samples {
+            let sine = (2.0 * PI * freq * t).sin();
+            let square_wave = if sine >= 0.0 { 1.0 } else { -1.0 };
+
+            // base waveform
+            let mut base = sine * (1.0 - args.square) + square_wave * args.square;
+
+            // soft limiter: restrict per-sample delta
+            if soft_strength > 0.0 {
+                let max_delta = 0.2 * soft_strength; // tuned for audible behavior
+                let delta = base - last_sample;
+
+                if delta > max_delta {
+                    base = last_sample + max_delta;
+                } else if delta < -max_delta {
+                    base = last_sample - max_delta;
+                }
+            }
+
+            last_sample = base;
+
+            // attack envelope
+            let attack_gain = (t * 1000.0 / ev.params.attack.max(0.0001)).min(1.0);
+
+            // release envelope
+            let release_ms = 50.0;
+            let time_left_sec = (total_samples - i) as f32 / sample_rate as f32;
+            let release_gain = if time_left_sec < release_ms / 1000.0 {
+                (time_left_sec * 1000.0 / release_ms).min(1.0)
+            } else {
+                1.0
+            };
+
+            let sample = base * ev.params.vol * volume * attack_gain * release_gain;
+
+            samples.push(sample);
+            t += dt;
+        }
     }
 
-    sink.sleep_until_end();
+    samples
 }
 
-// -----------------------------
-// main
-// -----------------------------
+// Play audio using cpal
+fn play(events: Vec<NoteEvent>, args: &Args) {
+    let host = cpal::default_host();
+    let device = host.default_output_device().expect("no output device");
+
+    let config = device.default_output_config().unwrap().config();
+    let sample_rate = config.sample_rate;
+    let channels = config.channels as usize;
+
+    let mono_samples = synth_events(&events, args, sample_rate);
+
+    let shared = Arc::new(mono_samples);
+    let index = Arc::new(AtomicUsize::new(0));
+
+    let err_fn = |err| eprintln!("stream error: {err}");
+
+    let shared_clone = shared.clone();
+    let index_clone = index.clone();
+
+    let stream = device
+        .build_output_stream(
+            &config,
+            move |data: &mut [f32], _| {
+                let total = shared_clone.len();
+                let mut i = index_clone.load(Ordering::Relaxed);
+
+                for frame in data.chunks_mut(channels) {
+                    let sample = if i < total {
+                        let s = shared_clone[i];
+                        i += 1;
+                        s
+                    } else {
+                        0.0
+                    };
+
+                    for ch in frame.iter_mut() {
+                        *ch = sample;
+                    }
+                }
+
+                index_clone.store(i, Ordering::Relaxed);
+            },
+            err_fn,
+            None,
+        )
+        .unwrap();
+
+    stream.play().unwrap();
+
+    let secs = shared.len() as f32 / sample_rate as f32 + 1.0;
+    thread::sleep(Duration::from_secs_f32(secs));
+}
+
 fn main() {
     let args = Args::parse();
     let events = load_score(&args.file);

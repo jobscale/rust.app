@@ -1,6 +1,6 @@
 # rust sound
 
-## Multilingual README  
+## Multilingual README
 Choose your language:
 
 - [English](#english)
@@ -25,10 +25,10 @@ cargo install just
 sudo apt install -y libasound2-dev pkg-config
 ```
 
-### Run on Debug
+### Run (Debug)
 
 ```
-just run --file examples/twinkle.txt --pitch 1.2 --tempo 1.2 --volume 0.05 --soft 2 --square 0.05
+just run --file examples/twinkle.txt --pitch 1.2 --tempo 1.2 --volume 0.6 --soft 0.2 --square 0.2
 ```
 
 ### Build
@@ -40,10 +40,12 @@ just build
 ### Run (Release)
 
 ```
-target/release/sound --file examples/twinkle.txt --pitch 1.2 --tempo 1.2 --volume 0.05 --soft 2 --square 0.05
+target/release/sound --file examples/twinkle.txt --pitch 1.2 --tempo 1.2 --volume 0.6 --soft 0.2 --square 0.2
 ```
 
-### Project Structure
+---
+
+## Project Structure
 
 ```
 .
@@ -58,40 +60,54 @@ target/release/sound --file examples/twinkle.txt --pitch 1.2 --tempo 1.2 --volum
     └── main.rs
 ```
 
-### About This App
+---
 
-This app is a **text‑driven singing sound generator**.  
-You write a melody in a plain `.txt` file, and the app turns it into an expressive, human‑like voice in real time.
+## About This App
 
-### Key Features
+This application is a **text‑driven melodic sound synthesizer**.
+You write a melody in a simple `.txt` file, and the program generates expressive tones in real time using pure Rust and `cpal`.
 
-#### 1. Compose with plain text
+---
+
+## Key Features
+
+### 1. Compose with plain text
 
 ```
-C4 200 vol=0.8 attack=30 noise=0.1
+C4 200 vol=0.8 attack=30
 D4 200
 E4 400
 ```
 
-#### 2. Expressive, voice‑like sound
-
-- Attack (how the sound begins)  
-- Release (natural fade‑out)  
-- Noise (breathiness)  
-- Softness (warm tone)  
-- Square tone (emotional edge)  
-- Simple low‑pass smoothing  
-
-#### 3. Adjustable emotional tone
+Each line represents:
 
 ```
---soft 1.5
---square 0.7
---soft 1.2 --square 0.3
+NOTE  DURATION(ms)  OPTIONAL_PARAMETERS
 ```
 
-#### 4. Real‑time synthesis  
-Audio is generated instantly — no exporting required.
+### 2. Expressive, voice‑like synthesis
+
+The engine supports:
+
+- **Attack** — controls how quickly the sound begins
+- **Release** — natural fade‑out
+- **Volume** — normalized (1.0 = 15% internal amplitude)
+- **Square mix** — blends sine and square wave
+- **Soft limiter** — reduces harsh waveform jumps without changing tone
+
+### 3. Soft limiter (waveform smoothing)
+
+`--soft` controls a **delta‑limiter** that reduces sudden waveform jumps.
+
+- `--soft 0.0` → no smoothing
+- `--soft 0.1` → mild smoothing
+- `--soft 1.0` → strong smoothing
+
+This removes harsh digital edges while keeping the original tone.
+
+### 4. Real‑time synthesis
+
+Audio is generated on the fly using `cpal` — no rendering or exporting required.
 
 </details>
 
@@ -117,7 +133,7 @@ sudo apt install -y libasound2-dev pkg-config
 ### デバッグ実行
 
 ```
-just run --file examples/twinkle.txt --pitch 1.2 --tempo 1.2 --volume 0.05 --soft 2 --square 0.05
+just run --file examples/twinkle.txt --pitch 1.2 --tempo 1.2 --volume 0.6 --soft 0.2 --square 0.2
 ```
 
 ### ビルド
@@ -129,10 +145,12 @@ just build
 ### リリース実行
 
 ```
-target/release/sound --file examples/twinkle.txt --pitch 1.2 --tempo 1.2 --volume 0.05 --soft 2 --square 0.05
+target/release/sound --file examples/twinkle.txt --pitch 1.2 --tempo 1.2 --volume 0.6 --soft 0.2 --square 0.2
 ```
 
-### プロジェクト構成
+---
+
+## プロジェクト構成
 
 ```
 .
@@ -147,39 +165,51 @@ target/release/sound --file examples/twinkle.txt --pitch 1.2 --tempo 1.2 --volum
     └── main.rs
 ```
 
-### このアプリについて
+---
 
-このアプリは **テキストでメロディを指定して歌わせるサウンドジェネレーター** です。  
-`.txt` ファイルにメロディを書くと、リアルタイムに人間味のある声のような音を生成します。
+## このアプリについて
 
-### 主な特徴
+このアプリは **テキストでメロディを指定して音を生成するシンプルなシンセサイザー** です。
+`.txt` ファイルに音階と長さを書くと、Rust と `cpal` によってリアルタイムに音が鳴ります。
 
-#### 1. テキストでメロディを指定
+---
+
+## 主な特徴
+
+### 1. テキストでメロディを記述
 
 ```
-C4 200 vol=0.8 attack=30 noise=0.1
+C4 200 vol=0.8 attack=30
 D4 200
 E4 400
 ```
 
-#### 2. 声のような表現力のある音
-
-- アタック（立ち上がり）  
-- リリース（自然な消え際）  
-- ノイズ（息っぽさ）  
-- Soft（柔らかいトーン）  
-- Square（切なく芯のあるトーン）  
-- 簡易ローパスで角を丸める  
-
-#### 3. 感情表現をパラメータで調整
+1 行が 1 音を表します：
 
 ```
---soft 1.5
---square 0.7
---soft 1.2 --square 0.3
+音階  長さ(ms)  オプションパラメータ
 ```
 
-#### 4. リアルタイム合成  
-書き出し不要で即時再生できます。
+### 2. 声のような表現力のある音
+
+- **アタック**（立ち上がり）
+- **リリース**（自然な減衰）
+- **ボリューム**（1.0 = 内部振幅 15%）
+- **スクエアミックス**（サイン波と矩形波のブレンド）
+- **ソフトリミッター**（波形の急激な乱れを抑える）
+
+### 3. ソフトリミッター（波形乱れ補正）
+
+`--soft` は **波形の変化量を制限するリミッター** です。
+
+- `--soft 0.0` → 補正なし
+- `--soft 0.1` → 軽い補正
+- `--soft 1.0` → 強い補正
+
+音色を変えずに、デジタル的な「バリッ」というノイズだけを抑えます。
+
+### 4. リアルタイム合成
+
+`cpal` によるリアルタイム再生で、書き出しは不要です。
 
 </details>

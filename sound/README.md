@@ -15,7 +15,7 @@ sudo apt install -y libasound2-dev pkg-config
 ### Run on debug
 
 ```
-just run --file examples/twinkle.txt  --pitch 1.2 --tempo 1.2 --volume 0.05 --soft 2 --square 0.05
+just run --file examples/twinkle.txt --pitch 1.2 --tempo 1.2 --volume 0.6 --soft 0.2 --square 0.2
 ```
 
 ### Build
@@ -27,7 +27,7 @@ just build
 ### Run
 
 ```
-target/release/sound --file examples/twinkle.txt  --pitch 1.2 --tempo 1.2 --volume 0.05 --soft 2 --square 0.05
+target/release/sound --file examples/twinkle.txt --pitch 1.2 --tempo 1.2 --volume 0.6 --soft 0.2 --square 0.2
 ```
 
 ### Description

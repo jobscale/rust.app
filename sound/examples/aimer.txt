@@ -1,54 +1,54 @@
 # 1. 羽根は大きく
-C4 208 vol=0.7 noise=0.02 attack=60
-D4 208 vol=0.75 noise=0.02 attack=50
-E4 417 vol=0.9 noise=0.03 attack=40
-F4 417 vol=1.0 noise=0.03 attack=30
-G4 417 vol=1.05 noise=0.04 attack=25
-G4 417 vol=1.00 noise=0.03 attack=30
-G4 1666 vol=1.10 noise=0.05 attack=20
+C4 208 vol=0.7 attack=60
+D4 208 vol=0.75 attack=50
+E4 417 vol=0.9 attack=40
+F4 417 vol=1.0 attack=30
+G4 417 vol=1.05 attack=25
+G4 417 vol=1.00 attack=30
+G4 1666 vol=1.10 attack=20
 
 # 2. 結び目は固くなるように
-G4 208 vol=0.8 noise=0.03 attack=50
-G4 208 vol=0.85 noise=0.03 attack=45
-G4 417 vol=0.9 noise=0.03 attack=40
-G4 417 vol=1.0 noise=0.03 attack=35
-F4 417 vol=0.95 noise=0.03 attack=40
-E4 208 vol=0.85 noise=0.02 attack=50
-F4 208 vol=0.9 noise=0.02 attack=45
-E4 208 vol=0.85 noise=0.02 attack=50
-D4 208 vol=0.8 noise=0.02 attack=55
-C4 208 vol=0.75 noise=0.02 attack=60
-D4 208 vol=0.8 noise=0.02 attack=55
-E4 1250 vol=1.05 noise=0.04 attack=30
+G4 208 vol=0.8 attack=50
+G4 208 vol=0.85 attack=45
+G4 417 vol=0.9 attack=40
+G4 417 vol=1.0 attack=35
+F4 417 vol=0.95 attack=40
+E4 208 vol=0.85 attack=50
+F4 208 vol=0.9 attack=45
+E4 208 vol=0.85 attack=50
+D4 208 vol=0.8 attack=55
+C4 208 vol=0.75 attack=60
+D4 208 vol=0.8 attack=55
+E4 1250 vol=1.05 attack=30
 
 # 3. きつく 結んでいてほしいの
-E4 417 vol=0.9 noise=0.03 attack=40
-F4 417 vol=1.0 noise=0.03 attack=35
-G4 833 vol=1.1 noise=0.04 attack=25
-G4 208 vol=0.9 noise=0.03 attack=40
-F4 208 vol=0.85 noise=0.02 attack=45
-E4 417 vol=0.9 noise=0.03 attack=40
-D4 208 vol=0.8 noise=0.02 attack=50
-C4 208 vol=0.75 noise=0.02 attack=60
-D4 208 vol=0.8 noise=0.02 attack=55
-E4 208 vol=0.85 noise=0.02 attack=50
-D4 208 vol=0.8 noise=0.02 attack=55
-C4 1250 vol=1.0 noise=0.04 attack=35
+E4 417 vol=0.9 attack=40
+F4 417 vol=1.0 attack=35
+G4 833 vol=1.1 attack=25
+G4 208 vol=0.9 attack=40
+F4 208 vol=0.85 attack=45
+E4 417 vol=0.9 attack=40
+D4 208 vol=0.8 attack=50
+C4 208 vol=0.75 attack=60
+D4 208 vol=0.8 attack=55
+E4 208 vol=0.85 attack=50
+D4 208 vol=0.8 attack=55
+C4 1250 vol=1.0 attack=35
 
 # 4. 夢はここに
-C4 208 vol=0.7 noise=0.02 attack=60
-D4 208 vol=0.75 noise=0.02 attack=50
-E4 417 vol=0.9 noise=0.03 attack=40
-F4 417 vol=1.0 noise=0.03 attack=35
-G4 417 vol=1.05 noise=0.04 attack=30
-G4 1666 vol=1.1 noise=0.05 attack=25
+C4 208 vol=0.7 attack=60
+D4 208 vol=0.75 attack=50
+E4 417 vol=0.9 attack=40
+F4 417 vol=1.0 attack=35
+G4 417 vol=1.05 attack=30
+G4 1666 vol=1.1 attack=25
 
 # 5. 想い出は遠くに
-G4 208 vol=0.8 noise=0.03 attack=50
-G4 208 vol=0.85 noise=0.03 attack=45
-G4 417 vol=0.9 noise=0.03 attack=40
-F4 417 vol=0.85 noise=0.03 attack=45
-E4 417 vol=0.8 noise=0.03 attack=50
-F4 417 vol=0.85 noise=0.03 attack=45
-D4 417 vol=0.75 noise=0.02 attack=55
-C4 833 vol=0.9 noise=0.03 attack=50
+G4 208 vol=0.8 attack=50
+G4 208 vol=0.85 attack=45
+G4 417 vol=0.9 attack=40
+F4 417 vol=0.85 attack=45
+E4 417 vol=0.8 attack=50
+F4 417 vol=0.85 attack=45
+D4 417 vol=0.75 attack=55
+C4 833 vol=0.9 attack=50
