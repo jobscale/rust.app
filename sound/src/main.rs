@@ -1,5 +1,6 @@
 use clap::Parser;
 use std::{
+    env,
     f32::consts::PI,
     fs::File,
     io::{BufRead, BufReader},
@@ -20,7 +21,7 @@ struct Args {
     file: PathBuf,
 
     #[arg(long, default_value = "1.0")]
-    volume: f32, // normalized: 1.0 = 15%
+    volume: f32,
 
     #[arg(long, default_value = "1.0")]
     tempo: f32,
@@ -29,13 +30,24 @@ struct Args {
     pitch: f32,
 
     #[arg(long, default_value = "0.0")]
-    soft: f32, // waveform smoothing limiter (0.0 - 1.0)
+    soft: f32,
 
     #[arg(long, default_value = "0.0")]
-    square: f32, // square wave mix
+    square: f32,
 }
 
-// Convert note name (e.g. "A4") to frequency
+fn debug_log(msg: &str) {
+    if let Ok(level) = env::var("LOG_LEVEL") {
+        if level == "debug" {
+            println!("[debug] {msg}");
+        }
+    }
+}
+
+fn error_log(msg: &str) {
+    eprintln!("[error] {msg}");
+}
+
 fn note_to_freq(note: &str) -> Option<f32> {
     let (pitch, octave_str) = note.split_at(note.len() - 1);
     let octave: i32 = octave_str.parse().ok()?;
@@ -73,7 +85,6 @@ struct NoteEvent {
     params: VoiceParams,
 }
 
-// Load score file
 fn load_score(path: &PathBuf) -> Vec<NoteEvent> {
     let file = File::open(path).unwrap();
     let reader = BufReader::new(file);
@@ -118,11 +129,9 @@ fn load_score(path: &PathBuf) -> Vec<NoteEvent> {
     events
 }
 
-// Synthesize all notes into a mono f32 buffer
 fn synth_events(events: &[NoteEvent], args: &Args, sample_rate: u32) -> Vec<f32> {
     let mut samples = Vec::new();
 
-    // volume normalization: 1.0 = 15%
     let volume = args.volume * 0.15;
     let soft_strength = args.soft.clamp(0.0, 1.0);
 
@@ -139,12 +148,10 @@ fn synth_events(events: &[NoteEvent], args: &Args, sample_rate: u32) -> Vec<f32>
             let sine = (2.0 * PI * freq * t).sin();
             let square_wave = if sine >= 0.0 { 1.0 } else { -1.0 };
 
-            // base waveform
             let mut base = sine * (1.0 - args.square) + square_wave * args.square;
 
-            // soft limiter: restrict per-sample delta
             if soft_strength > 0.0 {
-                let max_delta = 0.2 * soft_strength; // tuned for audible behavior
+                let max_delta = 0.2 * soft_strength;
                 let delta = base - last_sample;
 
                 if delta > max_delta {
@@ -156,10 +163,8 @@ fn synth_events(events: &[NoteEvent], args: &Args, sample_rate: u32) -> Vec<f32>
 
             last_sample = base;
 
-            // attack envelope
             let attack_gain = (t * 1000.0 / ev.params.attack.max(0.0001)).min(1.0);
 
-            // release envelope
             let release_ms = 50.0;
             let time_left_sec = (total_samples - i) as f32 / sample_rate as f32;
             let release_gain = if time_left_sec < release_ms / 1000.0 {
@@ -178,24 +183,37 @@ fn synth_events(events: &[NoteEvent], args: &Args, sample_rate: u32) -> Vec<f32>
     samples
 }
 
-// Play audio using cpal
 fn play(events: Vec<NoteEvent>, args: &Args) {
     let host = cpal::default_host();
     let device = host.default_output_device().expect("no output device");
 
-    let config = device.default_output_config().unwrap().config();
+    let default_config = device.default_output_config().unwrap();
+    let mut config = default_config.config();
+
+    // Use larger buffer to prevent underruns
+    config.buffer_size = cpal::BufferSize::Fixed(1024);
+
     let sample_rate = config.sample_rate;
     let channels = config.channels as usize;
 
-    let mono_samples = synth_events(&events, args, sample_rate);
+    debug_log(&format!("sample_rate = {}", sample_rate));
+    debug_log(&format!("channels = {}", channels));
+
+    let mono_samples = synth_events(&events, args, sample_rate as u32);
+
+    debug_log(&format!("generated samples = {}", mono_samples.len()));
 
     let shared = Arc::new(mono_samples);
     let index = Arc::new(AtomicUsize::new(0));
 
-    let err_fn = |err| eprintln!("stream error: {err}");
+    let err_fn = |err: cpal::StreamError| {
+        error_log(&format!("CPAL error: {err}"));
+    };
 
     let shared_clone = shared.clone();
     let index_clone = index.clone();
+
+    debug_log("building stream");
 
     let stream = device
         .build_output_stream(
@@ -205,16 +223,17 @@ fn play(events: Vec<NoteEvent>, args: &Args) {
                 let mut i = index_clone.load(Ordering::Relaxed);
 
                 for frame in data.chunks_mut(channels) {
-                    let sample = if i < total {
-                        let s = shared_clone[i];
+                    if i < total {
+                        let sample = shared_clone[i];
+                        for ch in frame.iter_mut() {
+                            *ch = sample;
+                        }
                         i += 1;
-                        s
                     } else {
-                        0.0
-                    };
-
-                    for ch in frame.iter_mut() {
-                        *ch = sample;
+                        // Pad with silence after audio ends
+                        for ch in frame.iter_mut() {
+                            *ch = 0.0;
+                        }
                     }
                 }
 
@@ -225,9 +244,12 @@ fn play(events: Vec<NoteEvent>, args: &Args) {
         )
         .unwrap();
 
+    debug_log("calling stream.play()");
     stream.play().unwrap();
+    debug_log("stream.play() returned");
 
-    let secs = shared.len() as f32 / sample_rate as f32 + 1.0;
+    let secs = shared.len() as f32 / sample_rate as f32 + 0.5;
+    debug_log(&format!("sleeping for {:.2} seconds", secs));
     thread::sleep(Duration::from_secs_f32(secs));
 }
 
