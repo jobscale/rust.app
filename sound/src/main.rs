@@ -1,6 +1,5 @@
 use clap::Parser;
 use std::{
-    env,
     f32::consts::PI,
     fs::File,
     io::{BufRead, BufReader},
@@ -36,23 +35,15 @@ struct Args {
     square: f32,
 }
 
-fn debug_log(msg: &str) {
-    if let Ok(level) = env::var("LOG_LEVEL") {
-        if level == "debug" {
-            println!("[debug] {msg}");
-        }
-    }
-}
-
 fn error_log(msg: &str) {
     eprintln!("[error] {msg}");
 }
 
-fn note_to_freq(note: &str) -> Option<f32> {
-    let (pitch, octave_str) = note.split_at(note.len() - 1);
-    let octave: i32 = octave_str.parse().ok()?;
-
-    let semitone = match pitch {
+//---------------------------------------------
+// Note name → Semitone number
+//---------------------------------------------
+fn pitch_to_semitone(pitch: &str) -> Option<i32> {
+    Some(match pitch {
         "C" => -9,
         "C#" | "Db" => -8,
         "D" => -7,
@@ -66,12 +57,110 @@ fn note_to_freq(note: &str) -> Option<f32> {
         "A#" | "Bb" => 1,
         "B" => 2,
         _ => return None,
-    };
+    })
+}
 
+//---------------------------------------------
+// Single note → Frequency
+//---------------------------------------------
+fn note_to_freq(note: &str) -> Option<f32> {
+    let (pitch, octave_str) = note.split_at(note.len() - 1);
+    let octave: i32 = octave_str.parse().ok()?;
+
+    let semitone = pitch_to_semitone(pitch)?;
     let n = semitone + (octave - 4) * 12;
+
     Some(440.0 * 2f32.powf(n as f32 / 12.0))
 }
 
+//---------------------------------------------
+// Semitone number → Note name
+//---------------------------------------------
+fn semitone_to_note_name(semi: i32, octave: i32) -> Option<String> {
+    let names = [
+        "A", "A#", "B", "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#",
+    ];
+
+    let index = ((semi + 120) % 12) as usize;
+    let name = names[index];
+
+    let mut oct = octave;
+    if name == "C" || name == "C#" || name == "D" {
+        oct += 1;
+    }
+
+    Some(format!("{name}{oct}"))
+}
+
+//---------------------------------------------
+// Chord analysis (complete version)
+//---------------------------------------------
+fn parse_chord(token: &str) -> Option<Vec<String>> {
+    // Single note (C4, F#3) is not a chord
+    if token.chars().any(|c| c.is_numeric()) && !token.contains('_') {
+        return None;
+    }
+
+    // No "_" → Not a chord
+    let (name, octave_str) = token.rfind('_').map(|pos| token.split_at(pos))?;
+
+    let octave: i32 = octave_str.trim_start_matches('_').parse().ok()?;
+
+    // name = "Cmaj7" etc
+    let mut chars = name.chars().peekable();
+
+    // Root note
+    let mut root = String::new();
+    root.push(chars.next()?);
+
+    if let Some('#') | Some('b') = chars.peek().copied() {
+        root.push(chars.next()?);
+    }
+
+    // Remaining characters are quality
+    let quality: String = chars.collect();
+
+    let base_semitone = pitch_to_semitone(&root)?;
+
+    // Chord constituent notes
+    let intervals: Vec<i32> = match quality.as_str() {
+        "" => vec![0, 4, 7],
+        "m" => vec![0, 3, 7],
+        "dim" => vec![0, 3, 6],
+        "aug" => vec![0, 4, 8],
+        "sus2" => vec![0, 2, 7],
+        "sus4" => vec![0, 5, 7],
+
+        "7" => vec![0, 4, 7, 10],
+        "maj7" => vec![0, 4, 7, 11],
+        "m7" => vec![0, 3, 7, 10],
+        "m7b5" => vec![0, 3, 6, 10],
+        "dim7" => vec![0, 3, 6, 9],
+
+        "6" => vec![0, 4, 7, 9],
+        "m6" => vec![0, 3, 7, 9],
+
+        "9" => vec![0, 4, 7, 10, 14],
+        "m9" => vec![0, 3, 7, 10, 14],
+
+        "add9" => vec![0, 4, 7, 14],
+
+        _ => return None,
+    };
+
+    let mut notes = Vec::new();
+    for iv in intervals {
+        let semi = base_semitone + iv;
+        let note_name = semitone_to_note_name(semi, octave)?;
+        notes.push(note_name);
+    }
+
+    Some(notes)
+}
+
+//---------------------------------------------
+// NoteEvent (multiple frequency support)
+//---------------------------------------------
 #[derive(Debug, Clone)]
 struct VoiceParams {
     vol: f32,
@@ -80,11 +169,14 @@ struct VoiceParams {
 
 #[derive(Debug, Clone)]
 struct NoteEvent {
-    freq: f32,
+    freqs: Vec<f32>,
     duration_ms: u64,
     params: VoiceParams,
 }
 
+//---------------------------------------------
+// Load score (single notes + chords)
+//---------------------------------------------
 fn load_score(path: &PathBuf) -> Vec<NoteEvent> {
     let file = File::open(path).unwrap();
     let reader = BufReader::new(file);
@@ -102,9 +194,25 @@ fn load_score(path: &PathBuf) -> Vec<NoteEvent> {
             continue;
         }
 
-        let note = parts[0];
-        let duration_ms: u64 = parts[1].parse().unwrap();
-        let freq = note_to_freq(note).unwrap();
+        let token = parts[0];
+        let duration_ms: u64 = parts[1].parse().unwrap_or_else(|_| {
+            error_log(&format!("duration parse error: {}", line));
+            0
+        });
+
+        let freqs = if token == "R" {
+            vec![] // Rest (silence)
+        } else if let Some(notes) = parse_chord(token) {
+            notes.into_iter().filter_map(|n| note_to_freq(&n)).collect()
+        } else {
+            match note_to_freq(token) {
+                Some(freq) => vec![freq],
+                None => {
+                    error_log(&format!("unknown note: {}", line));
+                    continue;
+                }
+            }
+        };
 
         let mut params = VoiceParams {
             vol: 1.0,
@@ -113,14 +221,20 @@ fn load_score(path: &PathBuf) -> Vec<NoteEvent> {
 
         for p in &parts[2..] {
             if let Some(v) = p.strip_prefix("vol=") {
-                params.vol = v.parse().unwrap();
+                params.vol = v.parse().unwrap_or_else(|_| {
+                    error_log(&format!("vol parse error: {}", line));
+                    1.0
+                });
             } else if let Some(v) = p.strip_prefix("attack=") {
-                params.attack = v.parse().unwrap();
+                params.attack = v.parse().unwrap_or_else(|_| {
+                    error_log(&format!("attack parse error: {}", line));
+                    20.0
+                });
             }
         }
 
         events.push(NoteEvent {
-            freq,
+            freqs,
             duration_ms,
             params,
         });
@@ -129,6 +243,9 @@ fn load_score(path: &PathBuf) -> Vec<NoteEvent> {
     events
 }
 
+//---------------------------------------------
+// Synthesis
+//---------------------------------------------
 fn synth_events(events: &[NoteEvent], args: &Args, sample_rate: u32) -> Vec<f32> {
     let mut samples = Vec::new();
 
@@ -141,17 +258,30 @@ fn synth_events(events: &[NoteEvent], args: &Args, sample_rate: u32) -> Vec<f32>
 
         let mut t = 0.0f32;
         let dt = 1.0 / sample_rate as f32;
-        let freq = ev.freq * args.pitch;
+
         let mut last_sample = 0.0f32;
 
+        // Whether it is a rest
+        let is_rest = ev.freqs.is_empty();
+        // Enhance smoothing around rests
+        let effective_soft = if is_rest { 1.0 } else { soft_strength };
+
         for i in 0..total_samples {
-            let sine = (2.0 * PI * freq * t).sin();
-            let square_wave = if sine >= 0.0 { 1.0 } else { -1.0 };
+            let mut mix = 0.0;
 
-            let mut base = sine * (1.0 - args.square) + square_wave * args.square;
+            if !is_rest {
+                for &freq in &ev.freqs {
+                    let f = freq * args.pitch;
+                    mix += (2.0 * PI * f * t).sin();
+                }
+                mix /= ev.freqs.len() as f32;
+            }
 
-            if soft_strength > 0.0 {
-                let max_delta = 0.2 * soft_strength;
+            let square_wave = if mix >= 0.0 { 1.0 } else { -1.0 };
+            let mut base = mix * (1.0 - args.square) + square_wave * args.square;
+
+            if effective_soft > 0.0 {
+                let max_delta = 0.2 * effective_soft;
                 let delta = base - last_sample;
 
                 if delta > max_delta {
@@ -165,7 +295,7 @@ fn synth_events(events: &[NoteEvent], args: &Args, sample_rate: u32) -> Vec<f32>
 
             let attack_gain = (t * 1000.0 / ev.params.attack.max(0.0001)).min(1.0);
 
-            let release_ms = 50.0;
+            let release_ms = if is_rest { 100.0 } else { 50.0 };
             let time_left_sec = (total_samples - i) as f32 / sample_rate as f32;
             let release_gain = if time_left_sec < release_ms / 1000.0 {
                 (time_left_sec * 1000.0 / release_ms).min(1.0)
@@ -183,6 +313,9 @@ fn synth_events(events: &[NoteEvent], args: &Args, sample_rate: u32) -> Vec<f32>
     samples
 }
 
+//---------------------------------------------
+// Playback
+//---------------------------------------------
 fn play(events: Vec<NoteEvent>, args: &Args) {
     let host = cpal::default_host();
     let device = host.default_output_device().expect("no output device");
@@ -190,18 +323,12 @@ fn play(events: Vec<NoteEvent>, args: &Args) {
     let default_config = device.default_output_config().unwrap();
     let mut config = default_config.config();
 
-    // Use larger buffer to prevent underruns
     config.buffer_size = cpal::BufferSize::Fixed(1024);
 
     let sample_rate = config.sample_rate;
     let channels = config.channels as usize;
 
-    debug_log(&format!("sample_rate = {}", sample_rate));
-    debug_log(&format!("channels = {}", channels));
-
     let mono_samples = synth_events(&events, args, sample_rate as u32);
-
-    debug_log(&format!("generated samples = {}", mono_samples.len()));
 
     let shared = Arc::new(mono_samples);
     let index = Arc::new(AtomicUsize::new(0));
@@ -212,8 +339,6 @@ fn play(events: Vec<NoteEvent>, args: &Args) {
 
     let shared_clone = shared.clone();
     let index_clone = index.clone();
-
-    debug_log("building stream");
 
     let stream = device
         .build_output_stream(
@@ -230,7 +355,6 @@ fn play(events: Vec<NoteEvent>, args: &Args) {
                         }
                         i += 1;
                     } else {
-                        // Pad with silence after audio ends
                         for ch in frame.iter_mut() {
                             *ch = 0.0;
                         }
@@ -244,12 +368,9 @@ fn play(events: Vec<NoteEvent>, args: &Args) {
         )
         .unwrap();
 
-    debug_log("calling stream.play()");
     stream.play().unwrap();
-    debug_log("stream.play() returned");
 
     let secs = shared.len() as f32 / sample_rate as f32 + 0.5;
-    debug_log(&format!("sleeping for {:.2} seconds", secs));
     thread::sleep(Duration::from_secs_f32(secs));
 }
 
